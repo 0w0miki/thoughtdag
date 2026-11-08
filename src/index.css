@@ -652,6 +652,13 @@ body.tdag-connecting, body.tdag-connecting * {
   stroke-width: calc(7px * 0.32 / var(--tdag-zoom, 0.32)) !important;
 }
 
+/* Glyph distance: a card is only a seal. Inside a region it recedes, so the
+   region's own name — drawn above the cards by the cover layer — is what
+   reads at that distance. Membership comes from lib/frames via displayNodes. */
+[data-zoom-tier='glyph'] .react-flow__node.in-frame {
+  opacity: 0.35;
+}
+
 /* Unbroken long tokens (URLs, DOIs, hashes) must wrap instead of escaping
    the card / plaque / panel box — anywhere-wrap is safe for CJK and Latin */
 .thought-node, .map-node, [data-focus-panel], .markdown-body, [data-glyph-node] {

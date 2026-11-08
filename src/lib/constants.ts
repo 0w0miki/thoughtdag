@@ -58,6 +58,13 @@ export const FRAME_COLORS: Record<string, { border: string; bg: string; dot: str
   rose: { border: 'border-rose-400/50', bg: 'bg-rose-400/[0.06]', dot: 'bg-rose-400' },
 };
 
+/** A folded frame is exactly its title bar: one row, no body. */
+export const FRAME_COLLAPSED_HEIGHT = 44;
+
+/** Below this zoom a frame's name is drawn as a cover over its region (above
+ *  the cards) instead of as a title row. */
+export const FRAME_COVER_ZOOM = 0.35;
+
 // Focus panel overlay: the panel floats OVER the canvas (the canvas never
 // resizes). Width is user-resizable and persisted; App reads it to nudge
 // the viewport when the selected node would be hidden underneath.

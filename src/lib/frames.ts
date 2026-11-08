@@ -40,15 +40,47 @@ export function frameContains(outer: Rect, inner: Rect): boolean {
     && inner.y + inner.height <= outer.y + outer.height;
 }
 
+/** The rect membership is judged against. A folded frame renders as its title
+ *  bar but KEEPS the range it had before folding, so what it owns stays
+ *  answerable while the contents are hidden. */
+export function frameMembershipRect(frame: ThoughtNode): Rect {
+  const r = frameRect(frame);
+  const expanded = frame.data.frameExpandedHeight;
+  if (frame.data.frameCollapsed && typeof expanded === 'number' && expanded > 0) {
+    return { ...r, height: expanded };
+  }
+  return r;
+}
+
 /** The nodes a frame owns right now: ordinary nodes by centre, frames by
  *  full containment. Callers that must not move a node twice (a multi-select
  *  drag) filter the selection out themselves. */
 export function frameMembers(frame: ThoughtNode, nodes: ThoughtNode[]): ThoughtNode[] {
-  const r = frameRect(frame);
+  const r = frameMembershipRect(frame);
   return nodes.filter((n) => {
     if (n.id === frame.id) return false;
     if (isFrameNode(n)) return frameContains(r, frameRect(n));
     const c = nodeCenter(n);
     return c.x >= r.x && c.x <= r.x + r.width && c.y >= r.y && c.y <= r.y + r.height;
   });
+}
+
+/** Everything a frame owns, nested frames' contents included — what a fold
+ *  hides. Recursion goes through each member frame's own membership rect, so a
+ *  folded inner frame still yields what it holds. `seen` makes a malformed
+ *  nesting (a frame claiming itself transitively) terminate. */
+export function frameDescendants(frame: ThoughtNode, nodes: ThoughtNode[]): ThoughtNode[] {
+  const seen = new Set<string>([frame.id]);
+  const out: ThoughtNode[] = [];
+  const queue: ThoughtNode[] = [frame];
+  while (queue.length > 0) {
+    const current = queue.shift() as ThoughtNode;
+    for (const member of frameMembers(current, nodes)) {
+      if (seen.has(member.id)) continue;
+      seen.add(member.id);
+      out.push(member);
+      if (isFrameNode(member)) queue.push(member);
+    }
+  }
+  return out;
 }

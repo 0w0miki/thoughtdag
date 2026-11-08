@@ -16,7 +16,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import 'highlight.js/styles/github.css';
-import { ArrowRight, BookOpen, Bot, Brain, CircleHelp, Download, Drama, Eye, FileText, FolderSync, Frame, GitBranch, Hand, Highlighter, History as HistoryIcon, ImageDown, KeyRound, LayoutGrid, ListRestart, Loader2, MessageCircleQuestion, Minimize2, MoreHorizontal, Paperclip, Redo2, Rewind, Scissors, Search, Share2, SquareTerminal, Star, Stethoscope, StickyNote, Trash2, Undo2, Workflow, X } from 'lucide-react';
+import { ArrowRight, BookOpen, Bot, Brain, ChevronDown, ChevronRight, CircleHelp, Download, Drama, Eye, FileText, FolderSync, Frame, GitBranch, Hand, Highlighter, History as HistoryIcon, ImageDown, KeyRound, LayoutGrid, ListRestart, Loader2, MessageCircleQuestion, Minimize2, MoreHorizontal, Paperclip, Redo2, Rewind, Scissors, Search, Share2, SquareTerminal, Star, Stethoscope, StickyNote, Trash2, Undo2, Workflow, X } from 'lucide-react';
 import './index.css';
 import ThoughtNode from './components/ThoughtNode';
 import ParadigmNode from './components/ParadigmNode';
@@ -39,7 +39,7 @@ import SessionAtlas from './components/SessionAtlas';
 import { useStore } from './store';
 import { undoState } from './store/slices/history';
 import { shownStaleIds } from './lib/stale-judge';
-import { frameMembers } from './lib/frames';
+import { frameDescendants, frameMembers } from './lib/frames';
 import { useProjects, adoptImportedProject, markInstantiatedFrom } from './store/projects';
 import { projectStorageKey } from './store/projects';
 import { set as idbSet } from 'idb-keyval';
@@ -54,7 +54,7 @@ import { buildContext } from './store/context-builder';
 import { exportActiveParadigm, exportActiveProjectJson, exportEventLogCsv } from './lib/export';
 import { countTokens } from './utils';
 import { buildExampleGraph } from './lib/example-graph';
-import { COLORS, FRAME_COLORS, PANEL_INSET } from './lib/constants';
+import { COLORS, FRAME_COLORS, FRAME_COVER_ZOOM, PANEL_INSET } from './lib/constants';
 import { panelShift } from './lib/panel-shift';
 import { useReaderDock } from './lib/reader-dock';
 import { migrateActiveCanvasToVault, gcVaultAtBoot } from './lib/attachment-vault-boot';
@@ -573,8 +573,9 @@ function Canvas() {
     // a move is a step of its own: settle anything unrecorded before it
     useStore.getState().pushHistory();
     // unlinked frames (frameCarry === false) move alone — the state while
-    // the frame itself is still being adjusted over its nodes
-    if (node.data.stepKind !== 'frame' || node.data.frameCarry === false) return;
+    // the frame itself is still being adjusted over its nodes; a folded frame
+    // has nothing on screen to carry (everything it owns is hidden)
+    if (node.data.stepKind !== 'frame' || node.data.frameCarry === false || node.data.frameCollapsed) return;
     const st = useStore.getState();
     const frame = st.nodes.find((n) => n.id === node.id);
     if (!frame) return;
@@ -927,6 +928,25 @@ function Canvas() {
     };
   }, [selectedNodeId, selectedNodeIds, nodes, edges]);
 
+  // Two membership sets, both derived from the ONE rule in lib/frames:
+  // - framedIds: what some frame owns right now — at glyph distance these dim
+  //   (CSS, keyed on the zoom tier) so the region's own name is what reads;
+  // - foldedIds: what a folded frame holds — these leave the canvas entirely.
+  // Both the node set and the edges are filtered against the fold: React Flow
+  // drops an edge only when the EDGE carries `hidden` (a hidden node's wires
+  // keep rendering), so the fold has to say it on both sides.
+  const { foldedIds, framedIds } = useMemo(() => {
+    const folded = new Set<string>();
+    const framed = new Set<string>();
+    for (const n of nodes) {
+      if (n.data.stepKind !== 'frame') continue;
+      const members = frameDescendants(n, nodes);
+      for (const m of members) framed.add(m.id);
+      if (n.data.frameCollapsed) for (const m of members) folded.add(m.id);
+    }
+    return { foldedIds: folded, framedIds: framed };
+  }, [nodes]);
+
   const displayNodes = useMemo((): typeof nodes => {
     // Smaller frames represent more specific regions, so render them above
     // larger frames while keeping every frame below ordinary canvas nodes.
@@ -973,8 +993,20 @@ function Canvas() {
         };
       });
     }
+    // Folded frames win last: nothing they hold may stay on the canvas,
+    // selected or otherwise.
+    if (foldedIds.size > 0) {
+      out = out.map((n) => (foldedIds.has(n.id) ? { ...n, hidden: true, selected: false } : n));
+    }
+    // Membership is a render fact, not a stored one: a node that a frame owns
+    // carries it so the glyph tier can dim it.
+    if (framedIds.size > 0) {
+      out = out.map((n) => (
+        framedIds.has(n.id) ? { ...n, className: [n.className, 'in-frame'].filter(Boolean).join(' ') } : n
+      ));
+    }
     return out;
-  }, [nodes, edges, annotationsHidden, searchHitIds, focusSets, selectedNodeId]);
+  }, [nodes, edges, annotationsHidden, searchHitIds, focusSets, selectedNodeId, foldedIds, framedIds]);
 
   const highlightedEdges = useMemo((): ThoughtEdge[] => {
     // Visual law: SOLID = structural (conversation, layout, cascade),
@@ -998,8 +1030,11 @@ function Canvas() {
         ...(markerSlot && marker ? { markerEnd: { ...marker, color: themePalette[markerSlot] } } : {}),
       };
     });
+    const visibleBase = foldedIds.size > 0
+      ? base.map((e) => (foldedIds.has(e.source) || foldedIds.has(e.target) ? { ...e, hidden: true } : e))
+      : base;
     if (focusSets) {
-      return base.map((e) => {
+      return visibleBase.map((e) => {
         if (focusSets.pathEdgeIds.has(e.id)) {
           return {
             ...e,
@@ -1029,12 +1064,12 @@ function Canvas() {
       });
     }
     const activeIds = selectedNodeIds.length > 1 ? selectedNodeIds : [];
-    if (activeIds.length === 0) return base;
+    if (activeIds.length === 0) return visibleBase;
 
     // Walk up from each selected node, collect all ancestor edge ids
     const { visitedEdgeIds: ancestorEdgeIds } = walkUpAncestors(activeIds, nodes, edges);
 
-    return base.map((e) => {
+    return visibleBase.map((e) => {
       if (ancestorEdgeIds.has(e.id)) {
         return {
           ...e,
@@ -1050,7 +1085,24 @@ function Canvas() {
         zIndex: 0,
       };
     });
-  }, [nodes, edges, selectedNodeIds, themePalette, focusSets]);
+  }, [nodes, edges, selectedNodeIds, themePalette, focusSets, foldedIds]);
+
+  // Revealing a node a fold is hiding unfolds the frames that hold it: a
+  // search hit, a panel link or a highlight jump must land somewhere visible.
+  // Runs on selection because every reveal path selects its target.
+  useEffect(() => {
+    if (!selectedNodeId) return;
+    const { nodes: current } = useStore.getState();
+    const folded = current.filter((n) => n.data.stepKind === 'frame' && n.data.frameCollapsed);
+    for (const frame of folded) {
+      const st = useStore.getState();
+      const live = st.nodes.find((n) => n.id === frame.id);
+      if (!live || !live.data.frameCollapsed) continue;
+      if (frameDescendants(live, st.nodes).some((n) => n.id === selectedNodeId)) {
+        st.setFrameCollapsed(frame.id, false);
+      }
+    }
+  }, [selectedNodeId]);
 
   // The panel is an overlay — the canvas never resizes. When it opens (or
   // the selection moves while it is open) and the selected node would be
@@ -1246,6 +1298,7 @@ function Canvas() {
           <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--canvas-dot)" />
         )}
         <ZoomTierTag />
+        <FrameCovers />
         <ThoughtMapPill panelShiftWidth={panelOpen ? livePanelWidth : 0} />
         <TimelineBar />
         <Controls position="bottom-left" />
@@ -1735,8 +1788,14 @@ function Canvas() {
                     key={f.id}
                     onClick={() => {
                       setFrameNavOpen(false);
+                      // jumping to a region opens it: flying to a title bar
+                      // alone would land on an empty strip
+                      const height = f.data.frameCollapsed
+                        ? (f.data.frameExpandedHeight ?? 420)
+                        : (f.height ?? 420);
+                      if (f.data.frameCollapsed) useStore.getState().setFrameCollapsed(f.id, false);
                       rfInstance.current?.fitBounds(
-                        { x: f.position.x, y: f.position.y, width: f.width ?? 640, height: f.height ?? 420 },
+                        { x: f.position.x, y: f.position.y, width: f.width ?? 640, height },
                         { duration: 400, padding: 0.15 },
                       );
                     }}
@@ -1744,6 +1803,7 @@ function Canvas() {
                   >
                     <span className={`w-2.5 h-2.5 rounded-sm shrink-0 ${(FRAME_COLORS[f.data.frameColor ?? 'gray'] ?? FRAME_COLORS.gray).dot}`} />
                     <span className="truncate">{f.data.question || t('frame.untitled')}</span>
+                    {f.data.frameCollapsed && <ChevronRight size={12} className="text-ink-faint shrink-0 ml-auto" />}
                   </button>
                 ))}
               </div>
@@ -2144,6 +2204,56 @@ function Canvas() {
 // panelShiftWidth comes from the App's COMPOSITE panel-visible signal —
 // reading the raw ui-store panelOpen here desyncs the dock when the panel
 // closes via a pane click (which clears the selection, not the flag).
+// At overview distance a frame's name is drawn ABOVE the cards: a card that
+// has shrunk to a glyph must not punch a hole through the region's name. The
+// layer is pointer-transparent, so clicking and dragging inside a region still
+// reach the frame and the cards under it; only the fold control takes events.
+function FrameCovers() {
+  const t = useT();
+  const [tx, ty, zoom] = useRfStore((s) => s.transform);
+  const nodes = useStore((s) => s.nodes);
+  if (zoom >= FRAME_COVER_ZOOM) return null;
+  const frames = nodes.filter((n) => n.data.stepKind === 'frame' && !n.data.frameCollapsed);
+  if (frames.length === 0) return null;
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 5 }}>
+      {frames.map((f) => {
+        const w = (f.measured?.width ?? f.width ?? 640) * zoom;
+        const h = (f.measured?.height ?? f.height ?? 420) * zoom;
+        const label = f.data.question || t('frame.untitled');
+        // as large as fits the region, floored so a name stays readable at map
+        // distance (past the floor it spills out of the region instead of
+        // turning into a smudge)
+        const font = Math.max(11, Math.min(h * 0.42, (w * 0.86) / Math.max(2, label.length * 0.95)));
+        return (
+          <div
+            key={f.id}
+            className="absolute rounded-2xl bg-ink/[0.06]"
+            style={{ left: tx + f.position.x * zoom, top: ty + f.position.y * zoom, width: w, height: h }}
+          >
+            <div className="absolute inset-0 flex items-center justify-center px-3">
+              <span
+                className="font-bold text-ink/90 select-none whitespace-nowrap"
+                style={{ fontSize: font, lineHeight: 1 }}
+              >
+                {label}
+              </span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); useStore.getState().setFrameCollapsed(f.id, true); }}
+              title={t('frame.collapse')}
+              className="nodrag pointer-events-auto absolute flex items-center justify-center rounded-md text-ink-faint/70 hover:text-ink"
+              style={{ left: 3, top: 3, width: 20, height: 20 }}
+            >
+              <ChevronDown size={14} strokeWidth={1.75} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ThoughtMapPill({ panelShiftWidth }: { panelShiftWidth: number }) {
   const tier = useZoomTier();
   const t = useT();

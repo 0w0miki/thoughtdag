@@ -329,6 +329,11 @@ export interface ThoughtData extends Record<string, unknown> {
   linkSnapshotHtml?: string;
   frameColor?: string; // frame node: fixed-palette color token (wayfinding, not decoration)
   frameCarry?: boolean; // frame node: dragging carries contained nodes (absent = true; new frames start false so they can be adjusted into place first)
+  /** frame node: folded to its title bar — everything inside is hidden, edges included (undoable, saved with the canvas) */
+  frameCollapsed?: boolean;
+  /** frame node: the height the frame returns to when it unfolds. The folded
+      frame keeps the range it had, so membership stays judgeable while hidden. */
+  frameExpandedHeight?: number;
   instruction?: string; // paradigm body: the prompt (prompt node) or operator guidance (human node)
   fanoutRoles?: { name: string; prompt: string }[]; // role list carried by fanout steps/placeholders
   autoRerunRounds?: number; // max auto-triggered runs per user action (default 1); >1 enables loops

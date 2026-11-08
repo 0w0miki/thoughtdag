@@ -36,6 +36,9 @@ export interface NodeSlice {
   deleteEdges: (edgeIds: string[]) => void;
   editResponse: (nodeId: string, response: string) => void;
   toggleCollapse: (nodeId: string) => void;
+  /** Fold/unfold a frame region: the fold hides everything it owns (edges
+   *  included), the unfold restores the remembered height (undoable). */
+  setFrameCollapsed: (frameId: string, collapsed: boolean) => void;
   setEditing: (nodeId: string, editing: boolean) => void;
   setEditingResponse: (nodeId: string, editing: boolean) => void;
   duplicateNode: (nodeId: string) => void;

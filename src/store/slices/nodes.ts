@@ -1,9 +1,10 @@
 import type { StateCreator } from 'zustand';
 import type { ThoughtNode, ThoughtEdge } from '../../types';
 import { generateId, countTokens } from '../../utils';
-import { COLORS } from '../../lib/constants';
+import { COLORS, FRAME_COLLAPSED_HEIGHT } from '../../lib/constants';
 import { healLegacyNoteEdges, autoLayout, placeNewNodes, estimateNodeHeight, nodeHeight } from '../../lib/layout';
 import { getDescendantIds, walkUpAncestors } from '../../lib/graph';
+import { frameDescendants } from '../../lib/frames';
 import { referenceBlockContent, upstreamFingerprint, buildContext } from '../context-builder';
 import { pruneHighlights } from '../../lib/highlight-match';
 import { toast } from '../../lib/ui-store';
@@ -122,6 +123,45 @@ export const createNodeSlice: StateCreator<StoreState, [], [], NodeSlice> = (set
         return n;
       }),
     }));
+    get().pushHistory();
+  },
+
+  setFrameCollapsed: (frameId, collapsed) => {
+    const state = get();
+    const frame = state.nodes.find((n) => n.id === frameId);
+    if (!frame || frame.data.stepKind !== 'frame') return;
+    if ((frame.data.frameCollapsed === true) === collapsed) return;
+    // What the frame measured before the fold is what it returns to; an unfolded
+    // frame is measured, so a resize made meanwhile is the current truth.
+    const measured = frame.measured?.height ?? frame.height ?? 0;
+    const remembered = frame.data.frameExpandedHeight;
+    const expandedHeight = collapsed
+      ? (measured > FRAME_COLLAPSED_HEIGHT ? measured : (remembered ?? 420))
+      : (remembered ?? (measured > FRAME_COLLAPSED_HEIGHT ? measured : 420));
+    // the fold hides nodes: one step of its own, like a card's fold
+    get().pushHistory();
+    set((s) => {
+      const hidden = collapsed
+        ? new Set(frameDescendants(frame, s.nodes).map((n) => n.id))
+        : new Set<string>();
+      return {
+        nodes: s.nodes.map((n) => {
+          if (n.id === frameId) {
+            return {
+              ...n,
+              height: collapsed ? FRAME_COLLAPSED_HEIGHT : expandedHeight,
+              data: { ...n.data, frameCollapsed: collapsed, frameExpandedHeight: expandedHeight },
+            };
+          }
+          // anything that just went behind the fold cannot stay selected
+          return hidden.has(n.id) && n.selected ? { ...n, selected: false } : n;
+        }),
+        ...(collapsed && s.selectedNodeId && hidden.has(s.selectedNodeId) ? { selectedNodeId: null } : {}),
+        ...(collapsed && s.selectedNodeIds.some((id) => hidden.has(id))
+          ? { selectedNodeIds: s.selectedNodeIds.filter((id) => !hidden.has(id)) }
+          : {}),
+      };
+    });
     get().pushHistory();
   },
 
@@ -412,7 +452,18 @@ export const createNodeSlice: StateCreator<StoreState, [], [], NodeSlice> = (set
       // sat INSIDE the chain) — otherwise no relayout could ever fix
       // those canvases and the button would look broken
       const edges = healLegacyNoteEdges(state.nodes, state.edges);
-      return { nodes: autoLayout(state.nodes, edges), edges };
+      // What a fold hides is not on the canvas: layout must not carry those
+      // nodes off to a column nobody can see (unfolding would then leave the
+      // region empty). They stay exactly where they are.
+      const hidden = new Set<string>();
+      for (const n of state.nodes) {
+        if (n.data.stepKind === 'frame' && n.data.frameCollapsed) {
+          for (const m of frameDescendants(n, state.nodes)) hidden.add(m.id);
+        }
+      }
+      if (hidden.size === 0) return { nodes: autoLayout(state.nodes, edges), edges };
+      const laid = new Map(autoLayout(state.nodes.filter((n) => !hidden.has(n.id)), edges).map((n) => [n.id, n]));
+      return { nodes: state.nodes.map((n) => laid.get(n.id) ?? n), edges };
     });
     get().pushHistory();
   },

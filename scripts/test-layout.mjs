@@ -30,7 +30,7 @@ const framesBundle = join(tmp, 'frames.mjs');
 execFileSync(join(ROOT, 'node_modules/.bin/esbuild'), [
   join(ROOT, 'src/lib/frames.ts'), '--bundle', '--format=esm', '--platform=node', `--outfile=${framesBundle}`,
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
-const { frameMembers } = await import(pathToFileURL(framesBundle).href);
+const { frameMembers, frameDescendants } = await import(pathToFileURL(framesBundle).href);
 
 let failures = 0;
 function test(name, fn) {
@@ -216,6 +216,33 @@ test('a fully contained frame is a member of the outer frame, never the reverse'
   const ids = (f) => frameMembers(f, all).map((x) => x.id).sort();
   assert(JSON.stringify(ids(outer)) === JSON.stringify(['inner', 'n']), `outer owns ${ids(outer)}`);
   assert(JSON.stringify(ids(inner)) === JSON.stringify(['n']), `inner owns ${ids(inner)}`);
+});
+
+// A folded frame renders as its title bar but keeps its range: what it owns
+// stays answerable while hidden (the fold's membership and the unfold's
+// restore both read frameExpandedHeight).
+test('a fold hides the whole subtree: nested frames and their contents', () => {
+  const outer = frame('outer', 0, 0, 1000, 800);
+  const inner = frame('inner', 100, 100, 400, 300);
+  const n = placed(th('n'), 120, 120);          // centre inside both frames
+  const outside = placed(th('outside'), 700, 600); // inside outer only
+  const all = [outer, inner, n, outside];
+  const ids = frameDescendants(outer, all).map((x) => x.id).sort();
+  assert(JSON.stringify(ids) === JSON.stringify(['inner', 'n', 'outside']), `hides ${ids}`);
+  assert(!ids.includes('outer'), 'the frame hides itself');
+});
+
+test('a folded frame keeps the range it had, so membership survives the fold', () => {
+  const base = frame('F', 0, 0, 1000, 800);
+  const folded = {
+    ...base, height: 44,
+    data: { ...base.data, frameCollapsed: true, frameExpandedHeight: 800 },
+  };
+  const n = placed(th('n'), 400, 400);  // centre (660, 460): inside the pre-fold region
+  const all = [folded, n];
+  const ids = frameMembers(folded, all).map((x) => x.id);
+  assert(JSON.stringify(ids) === JSON.stringify(['n']), `folded frame owns ${ids}`);
+  assert(frameDescendants(folded, all).length === 1, 'the fold hides its member');
 });
 
 test('auto layout leaves partially overlapping frames where they are (#64)', () => {
