@@ -5,6 +5,7 @@ import { whyBridge } from '../lib/why-bridge';
 import { createPortal } from 'react-dom';
 import { AppWindow, Archive, ArrowDownUp, Link2, Folder, FolderOpen, Loader2, Plug, RefreshCw, RotateCcw, Search, Square, SquareCheckBig, SquareTerminal, Import, Trash2, X, Inbox } from 'lucide-react';
 import { scanSessions, groupByCwd, disabledRoots, setRootDisabled, type SessionCard, type AtlasGroup } from '../lib/atlas/discover';
+import { atlasQuery, cardMatchesQuery, sessionIdMatches, shortSessionId, looksLikeSessionId } from '../lib/atlas/card-search';
 import { diffAgainstWatermark, markSeen, markAllSeen, changeKeyOf, type CardChange } from '../lib/atlas/watermark';
 import { useProjects, switchProject, setProjectArchived, subscribedSessionIds } from '../store/projects';
 import { useT, t as ti, fmt } from '../i18n';
@@ -244,12 +245,30 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
   // screen reads as a broken atlas.
   const displayTitle = useCallback((c: SessionCard): string => threadNames.get(c.sessionId) ?? c.title, [threadNames]);
 
+  const q = atlasQuery(query);
+
+  // A pasted id is a goto, not a filter: the id appears on no card until it
+  // matches, so a hit prints its own short form and a runner toggle or the
+  // subthread rule cannot hide the session the user just asked for by name.
+  const idHits = useMemo(() => {
+    const hit = new Set<string>();
+    if (q) for (const c of cards ?? []) if (sessionIdMatches(c.sessionId, q)) hit.add(c.sessionId);
+    return hit;
+  }, [cards, q]);
+
+  // An id is also a phrase: someone may have pasted that id into a
+  // conversation. The card answers "which session is it", the why layer
+  // answers "who quoted it" — both questions, both answered, so the id goes
+  // to the index as-is (and the empty line is dropped rather than shouted).
+  const idQuery = looksLikeSessionId(q);
+  const recallQuery = idQuery ? q : query;
+
   // filters shape the whole atlas: folder counts follow them too
   const visible = useMemo(() => (cards ?? []).filter((c) =>
     !runnerOff.has(c.runner)
-    && (showSubagents || !c.subagent)
+    && (showSubagents || !c.subagent || idHits.has(c.sessionId))
     && (!onlyChanged || changes.has(changeKeyOf(c)))
-    && (!query.trim() || displayTitle(c).toLowerCase().includes(query.trim().toLowerCase()))), [cards, runnerOff, query, onlyChanged, changes, showSubagents, displayTitle]);
+    && cardMatchesQuery(c, displayTitle(c), q)), [cards, runnerOff, q, onlyChanged, changes, showSubagents, displayTitle, idHits]);
   const groups = useMemo(() => groupByCwd(visible), [visible]);
   const runners = useMemo(() => [...new Set((cards ?? []).map((c) => c.runner))].sort(), [cards]);
   const rootCounts = useMemo(() => {
@@ -257,7 +276,14 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
     for (const c of cards ?? []) m.set(c.rootKey, (m.get(c.rootKey) ?? 0) + 1);
     return m;
   }, [cards]);
-  const activeGroup: AtlasGroup | null = selected === 'canvases' ? null : groups.find((g) => (g.cwd ?? '') === (selected ?? groups[0]?.cwd ?? '')) ?? groups[0] ?? null;
+  // the id's own folder wins over the selected one (even "My canvases"):
+  // the card the user asked for by name must be on screen to be imported
+  const idGroup = useMemo(
+    () => (idHits.size ? groups.find((g) => g.cards.some((c) => idHits.has(c.sessionId))) ?? null : null),
+    [groups, idHits],
+  );
+  const showCanvases = selected === 'canvases' && !idGroup;
+  const activeGroup: AtlasGroup | null = showCanvases ? null : idGroup ?? groups.find((g) => (g.cwd ?? '') === (selected ?? groups[0]?.cwd ?? '')) ?? groups[0] ?? null;
   const shownCards = useMemo(() => {
     if (!activeGroup) return [];
     const sorter = sortKey === 'name'
@@ -509,7 +535,7 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
             )}
             {groups.map((g) => {
               const key = g.cwd ?? '';
-              const isActive = selected !== 'canvases' && activeGroup === g;
+              const isActive = !showCanvases && activeGroup === g;
               return (
                 <button
                   key={key}
@@ -530,7 +556,7 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
             <div className="border-t border-line mt-2 pt-2">
               <button
                 onClick={() => setSelected('canvases')}
-                className={`w-full text-left px-4 py-2 flex items-center gap-2 transition-colors ${selected === 'canvases' ? 'bg-accent/5 text-accent' : 'text-ink hover:bg-wash'}`}
+                className={`w-full text-left px-4 py-2 flex items-center gap-2 transition-colors ${showCanvases ? 'bg-accent/5 text-accent' : 'text-ink hover:bg-wash'}`}
                 data-atlas-canvases
               >
                 <Inbox size={15} strokeWidth={1.75} className="shrink-0" />
@@ -542,8 +568,8 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
 
           {/* right: the selected group's sessions, or native canvases */}
           <div className="flex-1 overflow-y-auto p-4">
-            {canRecall && query.trim().length >= 2 && <RecallResults phrase={query} onOpened={() => { onClose(); onSwitched(); }} />}
-            {selected === 'canvases' ? (
+            {canRecall && recallQuery.trim().length >= 2 && <RecallResults phrase={recallQuery} quietEmpty={idQuery} onOpened={() => { onClose(); onSwitched(); }} />}
+            {showCanvases ? (
               <div className="space-y-1.5">
                 {projects.filter((p) => !p.archived).sort((a, b) => b.updatedAt - a.updatedAt).map((p) => (
                   <div key={p.id} className="group flex items-center flex-wrap gap-2 border border-line rounded-xl px-4 py-3 hover:bg-wash transition-colors cursor-pointer"
@@ -663,7 +689,10 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
                 )}
                 {!activeGroup ? (
                   <div className="py-16 text-center text-sm text-ink-faint">
-                    {cards === null ? t('atlas.scanning') : (cards.length > 0 ? t('atlas.filteredOut') : t('atlas.empty'))}
+                    {cards === null ? t('atlas.scanning')
+                      : cards.length === 0 ? t('atlas.empty')
+                      : idQuery && !idHits.size ? t('atlas.idNotFound')
+                      : t('atlas.filteredOut')}
                   </div>
                 ) : (
                 <>
@@ -672,7 +701,7 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
                   {shownCards.map((card) => (
                     <div
                       key={card.rel}
-                      className={`group border rounded-xl px-4 py-3 hover:bg-wash transition-colors cursor-pointer flex items-center gap-3 ${picked.has(pickKey(card)) ? 'border-accent/60 bg-accent/5' : 'border-line'}`}
+                      className={`group border rounded-xl px-4 py-3 hover:bg-wash transition-colors cursor-pointer flex items-center gap-3 ${picked.has(pickKey(card)) ? 'border-accent/60 bg-accent/5' : idHits.has(card.sessionId) ? 'border-accent/50 bg-accent/5' : 'border-line'}`}
                       onClick={() => void importCard(card)}
                       data-atlas-session={card.sessionId}
                     >
@@ -702,6 +731,13 @@ export default function SessionAtlas({ onClose, onSwitched, focusSessionId, init
                         <div className="text-2xs text-ink-faint mt-0.5 flex items-center gap-2">
                           {/* runner identity is functional provenance, not promotion */}
                           <span className="border border-line rounded px-1 py-px font-mono">{card.runner}</span>
+                          {/* the id appears only when it is what matched —
+                              an id you cannot see is an id you cannot trust */}
+                          {idHits.has(card.sessionId) && (
+                            <span className="border border-accent/40 text-accent rounded px-1 py-px font-mono" title={card.sessionId} data-atlas-id>
+                              {shortSessionId(card.sessionId).slice(0, 8)}
+                            </span>
+                          )}
                           <span>{dateLabel(card.mtime)}</span>
                           <span>{sizeLabel(card.size)}</span>
                         </div>

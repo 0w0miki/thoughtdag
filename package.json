@@ -27,6 +27,7 @@
     "test:live-log": "node scripts/test-live-log.mjs",
     "test:zstd-head": "node scripts/test-zstd-head.mjs",
     "test:subagents": "node scripts/test-subagents.mjs",
+    "test:atlas-search": "node scripts/test-atlas-search.mjs",
     "test:turn-context": "node scripts/test-turn-context.mjs",
     "test:harness-workspace": "node scripts/test-harness-workspace.mjs",
     "test:claude-fork": "node scripts/test-claude-fork.mjs",

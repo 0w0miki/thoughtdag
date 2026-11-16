@@ -109,7 +109,18 @@ export function HitCards({ hits, onOpened, extra, cards }: { hits: WhyFindHit[];
 
 interface Group { session: string; runner: string; title: string; kind: 'turn' | 'memory'; at: string | null; hits: WhyFindHit[] }
 
-export default function RecallResults({ phrase, onOpened, dossiers, onOpenDossier }: { phrase: string; onOpened?: () => void; dossiers?: WhyDossierSummary[]; onOpenDossier?: (topicId: string) => void }) {
+export default function RecallResults({
+  phrase, onOpened, dossiers, onOpenDossier,
+  /** an id query: the session card is the answer, so an empty phrase result
+   *  has nothing to add — hide the line, keep the hits */
+  quietEmpty,
+}: {
+  phrase: string;
+  onOpened?: () => void;
+  dossiers?: WhyDossierSummary[];
+  onOpenDossier?: (topicId: string) => void;
+  quietEmpty?: boolean;
+}) {
   const t = useT();
   const [result, setResult] = useState<WhyFindResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -152,6 +163,7 @@ export default function RecallResults({ phrase, onOpened, dossiers, onOpenDossie
   const q = phrase.trim().toLowerCase();
   if (q.length < 2) return null;
   const dossierHits = (dossiers ?? []).filter((d) => d.built && (d.name.toLowerCase().includes(q) || q.includes(d.name.toLowerCase())));
+  if (quietEmpty && !error && !(result && result.hits.length > 0) && dossierHits.length === 0) return null;
 
   return (
     <section className="mb-4" data-recall-results>

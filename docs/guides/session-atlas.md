@@ -37,7 +37,7 @@ From the welcome screen, choose **Agent conversations**. From a canvas, open **S
 |---|---|
 | **Recent work** | Return to recent canvases, including imported session mirrors |
 | **Project folders** | Group sessions by recorded working directory; different runners for one project meet here |
-| **Search and runner filters** | Filter by title or temporarily hide a runner |
+| **Search and runner filters** | Filter by title; paste a session id to jump to its card and find the turns that quote it; temporarily hide a runner |
 | **Changed only / subthreads / sort** | Focus on changes, show subthreads, and sort by time, name, size, or CLI |
 | **Session card** | Show title, runner, time, and size; hover for import, mount, app, and terminal actions |
 | **Sources** | Manage scan locations and one-command handoff |
