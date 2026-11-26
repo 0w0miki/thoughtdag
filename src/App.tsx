@@ -83,6 +83,7 @@ import LadderJobCard from './components/ui/LadderJobCard';
 if (import.meta.env.DEV) void import('./lib/ladder-lab');
 import ReleaseNotesDialog from './components/ui/ReleaseNotesDialog';
 import AgentCwdChip from './components/ui/AgentCwdChip';
+import AgentPresetChip from './components/ui/AgentPresetChip';
 import AgentPermissionChip from './components/ui/AgentPermissionChip';
 import WaitingPill from './components/ui/WaitingPill';
 import { pluginUpdateCommand } from './lib/plugin-update';
@@ -1730,6 +1731,7 @@ function Canvas() {
         )}
         {!isParadigm && <WaitingPill />}
         {!isParadigm && <AgentCwdChip />}
+        {!isParadigm && <AgentPresetChip />}
         {!isParadigm && <AgentPermissionChip />}
         {!isParadigm && <ModelPicker />}
         {/* Landing convenience only: inside the canvas the picker's own

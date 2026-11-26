@@ -363,8 +363,11 @@ async function activeCanvasCwd(): Promise<string | null> {
   } catch { return null; }
 }
 
-/** `permission`: the canvas's mode for this turn (absent = ask, the session as set). */
-type HarnessRoute = { cwd?: string; session?: string; forkSession?: string; forkAnchor?: string; permission?: 'auto' | 'allow' };
+/** `permission`: the canvas's mode for this turn (absent = ask, the session as set).
+ *  `agentPreset`: which DSH Agent preset a FRESH session runs as (absent = the
+ *  harness default); a fork inherits its source session's and a continued
+ *  session keeps its own — DSH locks a preset once the session has started. */
+type HarnessRoute = { cwd?: string; session?: string; forkSession?: string; forkAnchor?: string; permission?: 'auto' | 'allow'; agentPreset?: string };
 
 /** For the node about to generate: the harness routing for its request, or
  *  undefined when not embedded / not a harness-agent question. A simple
@@ -386,7 +389,14 @@ export async function harnessOutbound(nodeId: string, model: string | undefined)
   const cwd = chosen ?? (await activeCanvasCwd()) ?? currentSession?.cwd ?? (await own()) ?? undefined;
   // the canvas's permission mode rides along; the plugin applies it to this turn only
   const mode = projects.find((p) => p.id === activeId)?.agentGuard?.mode;
-  const base = { ...(cwd ? { cwd } : {}), ...(mode === 'auto' || mode === 'allow' ? { permission: mode } : {}) };
+  // the canvas's Agent preset rides along too; the plugin reads it only when
+  // it has to create a session (fork and continue have their own preset)
+  const preset = projects.find((p) => p.id === activeId)?.agentPreset;
+  const base = {
+    ...(cwd ? { cwd } : {}),
+    ...(mode === 'auto' || mode === 'allow' ? { permission: mode } : {}),
+    ...(preset ? { agentPreset: preset } : {}),
+  };
   try {
     const { useStore } = await import('../../store');
     const ss = projects.find((p) => p.id === activeId)?.sourceSession;

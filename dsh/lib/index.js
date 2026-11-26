@@ -1094,6 +1094,37 @@ async function sessionCreateRequest(cwd) {
   return { cwd }
 }
 
+// ── the harness's Agent presets, for the sessions the canvas creates ─────
+// A fresh session runs with a preset (标准模式, PTC 模式, 极简模式, 创造模式 …).
+// DSH takes the preset at creation and refuses to change it once the session
+// has started (agent-preset/locked), so this is the only door: a FORK
+// inherits the preset of the session it was forked from, and a CONTINUED
+// session keeps what it already has — neither reads the canvas's choice.
+// Broken presets are left out of the roster: offering one would only defer
+// the discovery to a session that cannot start. Hosts without the preset
+// service answer an empty list, and the canvas then shows no picker at all.
+/** The presets a fresh canvas-created session may run as, plus the default. */
+async function agentPresetRoster(ctx) {
+  try {
+    const presets = typeof ctx.get === 'function' ? ctx.get('agentPresets') : undefined
+    if (!presets) return { presets: [], default: null }
+    const rows = await presets.list()
+    const usable = rows
+      .filter((p) => p && typeof p.id === 'string' && p.broken === undefined)
+      .map((p) => ({
+        id: p.id,
+        // a shipped preset publishes no name: the canvas localizes the ids it
+        // knows and falls back to this for its own presets
+        ...(typeof p.name === 'string' && p.name ? { name: p.name } : {}),
+        ...(typeof p.description === 'string' && p.description ? { description: p.description } : {}),
+        isDefault: p.id === presets.defaultId,
+      }))
+    return { presets: usable, default: usable.find((p) => p.isDefault)?.id ?? null }
+  } catch {
+    return { presets: [], default: null }
+  }
+}
+
 /** Run one question through the harness's agent loop, continuing a mirrored
  *  session, forking a dsh mirror at the parent's exact turn, or creating a
  *  fresh session. Report progress as SSE-style frames via `emit`; resolves
@@ -1109,6 +1140,8 @@ async function runAgentTurn(ctx, body, emit, isClosed, { answerApprovals = true 
   const forkAnchor = typeof body?.harness?.forkAnchor === 'string' && body.harness.forkAnchor ? body.harness.forkAnchor : null
   let sessionId = null
   let forkedFrom = null
+  // the preset the created session actually ran as (a fresh session only)
+  let createdPreset = null
   if (continueId && (liveSession(ctx, continueId) || (await eventsOfSession(ctx, continueId)) !== null)) {
     sessionId = continueId
   } else if (forkId && forkAnchor) {
@@ -1123,9 +1156,19 @@ async function runAgentTurn(ctx, body, emit, isClosed, { answerApprovals = true 
   }
   if (!sessionId) {
     const cwd = typeof body?.harness?.cwd === 'string' && body.harness.cwd ? body.harness.cwd : null
-    sessionId = (await ctx.sessionController.create(await sessionCreateRequest(cwd))).sessionId
+    // the canvas's preset, and only while this host still offers it: an id
+    // remembered from another host's roster falls back to the default
+    // instead of failing the turn
+    const wanted = typeof body?.harness?.agentPreset === 'string' ? body.harness.agentPreset : null
+    const preset = wanted && (await agentPresetRoster(ctx)).presets.some(p => p.id === wanted) ? wanted : null
+    const created = await ctx.sessionController.create({
+      ...(await sessionCreateRequest(cwd)),
+      ...(preset ? { agentPreset: preset } : {}),
+    })
+    sessionId = created.sessionId
+    createdPreset = created.agentPreset ?? preset
   }
-  emit({ harnessSession: sessionId, continued: sessionId === continueId, ...(forkedFrom ? { forkedFrom } : {}) })
+  emit({ harnessSession: sessionId, continued: sessionId === continueId, ...(forkedFrom ? { forkedFrom } : {}), ...(createdPreset ? { agentPreset: createdPreset } : {}) })
   // a streaming caller can show and answer approvals; a one-shot caller
   // (/claude) cannot, so its requests fall through to the harness's own panel
   // turn/current are filled once our message enters the session: the approval
@@ -1575,6 +1618,10 @@ export async function apply(ctx, config) {
         let names = []
         try { names = permissionPresets ? [...permissionPresets.names] : [] } catch { /* the service went away */ }
         return sendJson(res, 200, { auto: names.includes(CANVAS_PRESETS.auto), allow: names.includes(CANVAS_PRESETS.allow) })
+      }
+      // the Agent presets (标准模式 …) a fresh canvas-created session may run as
+      if (path === '/agent-presets' && req.method === 'GET') {
+        return sendJson(res, 200, await agentPresetRoster(ctx))
       }
       const approvalRoute = /^\/approvals\/([^/]+)$/.exec(path)
       if (approvalRoute !== null && req.method === 'POST') {

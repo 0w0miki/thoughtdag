@@ -49,6 +49,12 @@ export interface ProjectMeta {
       step outside the working directory (default), or let everything
       through; `allow` lists directories that never ask. */
   agentGuard?: { mode: AgentPermissionMode; allow: string[] };
+  /** Which Agent preset (标准模式, 创造模式 …) a FRESH session this canvas
+      starts runs as; absent = the harness's own default. DSH locks a
+      session's preset once it has started, so the two other paths never
+      read this: a fork inherits its source session's preset, and a
+      continued session keeps its own. */
+  agentPreset?: string;
   /** Archived = hidden from the dropdown and Recent work, data untouched.
       Tidying and destroying are different verbs. */
   archived?: boolean;
@@ -285,6 +291,14 @@ export async function setProjectAgentCwd(id: string, cwd: string | undefined): P
 export async function setProjectAgentGuard(id: string, guard: { mode: AgentPermissionMode; allow: string[] } | undefined): Promise<void> {
   useProjects.setState((s) => ({
     projects: s.projects.map((p) => (p.id === id ? { ...p, agentGuard: guard } : p)),
+  }));
+  await saveMeta();
+}
+
+/** Pick the Agent preset a fresh session this canvas starts runs as; undefined = follow the host default. */
+export async function setProjectAgentPreset(id: string, preset: string | undefined): Promise<void> {
+  useProjects.setState((s) => ({
+    projects: s.projects.map((p) => (p.id === id ? { ...p, agentPreset: preset } : p)),
   }));
   await saveMeta();
 }

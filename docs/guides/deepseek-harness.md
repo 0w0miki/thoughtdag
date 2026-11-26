@@ -39,6 +39,18 @@ Choose how to run a question in the canvas model picker:
 
 Selecting a regular model is not the same as running the Harness Agent. Choose **DeepSeek Harness · Agent** when you want tool execution and a recorded harness turn.
 
+### Which mode a new session runs in
+
+The **Agent preset** switch on the canvas toolbar (shown while the model picker is on **DeepSeek Harness · Agent**) decides which preset a **fresh session** runs as: Standard, PTC, Minimal or Creator. Choose "Follow the default" to use the one set as default in Harness.
+
+It reaches fresh sessions only. Harness does not let a session change preset once it has started, so:
+
+- a follow-up at the tail of a mirrored session continues that session, preset unchanged;
+- a fork from an earlier turn keeps its source session's preset;
+- several inputs, or no exact turn to hang from, open a fresh session, which uses the preset chosen here.
+
+Like the working directory and permissions on the toolbar, the preset belongs to this canvas. The list comes from the host's own roster, and the switch does not appear when the plugin host has no preset service.
+
 ## Example: explore an answer
 
 This is a recording of the actual interface:

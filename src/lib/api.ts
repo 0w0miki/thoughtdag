@@ -274,8 +274,10 @@ export async function llmCallStream(
   modelOverride?: string,
   /** Agent lanes only: which working directory the turn runs in, which
       session it continues, or which DSH session+turn anchor it forks from.
+      `agentPreset` names the DSH Agent preset a fresh session runs as (the
+      harness applies it on create only; fork and continue keep their own).
       The harness fields are ignored by every non-Harness backend. */
-  harness?: { cwd?: string; session?: string; forkSession?: string; forkAnchor?: string; sessionPath?: string; forkEntryId?: string; nodeId?: string; continue?: boolean; permission?: 'auto' | 'allow' },
+  harness?: { cwd?: string; session?: string; forkSession?: string; forkAnchor?: string; sessionPath?: string; forkEntryId?: string; nodeId?: string; continue?: boolean; permission?: 'auto' | 'allow'; agentPreset?: string },
 ): Promise<string> {
   // On the Workers deployment, OpenRouter models stream straight from the
   // browser — the proxy's CPU allowance can't survive big contexts + heavy
